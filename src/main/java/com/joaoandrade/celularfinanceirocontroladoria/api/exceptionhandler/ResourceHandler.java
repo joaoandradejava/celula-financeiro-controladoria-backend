@@ -6,6 +6,7 @@ import org.springframework.context.i18n.LocaleContextHolder;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
 import org.springframework.validation.ObjectError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -14,6 +15,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
+import com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException;
 import com.joaoandrade.celularfinanceirocontroladoria.domain.exception.EntidadeNaoEncontradaException;
 import com.joaoandrade.celularfinanceirocontroladoria.domain.exception.ErroInternoNoServidorException;
 import com.joaoandrade.celularfinanceirocontroladoria.domain.exception.SistemaException;
@@ -25,6 +27,16 @@ public class ResourceHandler extends ResponseEntityExceptionHandler {
 
 	@Autowired
 	private MessageSource messageSource;
+
+	@ExceptionHandler(Exception.class)
+	public ResponseEntity<Object> handleErroGenerico(Exception ex, WebRequest request) {
+		HttpStatus status = HttpStatus.INTERNAL_SERVER_ERROR;
+		Error error = Error.ERRO_INTERNO_NO_SERVIDOR;
+		ProblemDetail problemDetail = new ProblemDetail(error.getType(), error.getTitle(), status.value(),
+				"Aconteceu um erro interno no servidor", MENSAGEM_PADRAO_ERRO);
+
+		return handleExceptionInternal(ex, problemDetail, new HttpHeaders(), status, request);
+	}
 
 	@ExceptionHandler(ErroInternoNoServidorException.class)
 	public ResponseEntity<Object> handleErroInternoNoServidor(ErroInternoNoServidorException ex, WebRequest request) {
@@ -78,6 +90,34 @@ public class ResourceHandler extends ResponseEntityExceptionHandler {
 			problemDetail.adicionarError(field, userMessage);
 
 		}
+
+		return handleExceptionInternal(ex, problemDetail, headers, status, request);
+	}
+
+	@Override
+	protected ResponseEntity<Object> handleHttpMessageNotReadable(HttpMessageNotReadableException ex,
+			HttpHeaders headers, HttpStatus status, WebRequest request) {
+		Throwable cause = ex.getCause();
+
+		if (cause instanceof UnrecognizedPropertyException) {
+			return handleUnrecognizedProperty((UnrecognizedPropertyException) cause, headers, status, request);
+		}
+
+		Error error = Error.ERRO_DESSERIALIZACAO_JSON;
+		String mensagem = "Ocorreu um erro na desserialização do JSON. Verifique se os dados foram inseridos corretamente no corpo da requisição.";
+		ProblemDetail problemDetail = new ProblemDetail(error.getType(), error.getTitle(), status.value(), mensagem,
+				MENSAGEM_PADRAO_ERRO);
+
+		return handleExceptionInternal(ex, problemDetail, headers, status, request);
+
+	}
+
+	private ResponseEntity<Object> handleUnrecognizedProperty(UnrecognizedPropertyException ex, HttpHeaders headers,
+			HttpStatus status, WebRequest request) {
+		Error error = Error.PROPRIEDADE_INEXISTENTE;
+		String mensagem = String.format("A Propriedade '%s' é inexistente!", ex.getPropertyName());
+		ProblemDetail problemDetail = new ProblemDetail(error.getType(), error.getTitle(), status.value(), mensagem,
+				MENSAGEM_PADRAO_ERRO);
 
 		return handleExceptionInternal(ex, problemDetail, headers, status, request);
 	}
